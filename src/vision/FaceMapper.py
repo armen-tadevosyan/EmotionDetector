@@ -54,7 +54,7 @@ def draw_landmarks_on_image(rgb_image: ndarray, detection_result: FaceLandmarker
 class FaceMapper:
 
     def __init__(self,
-                 model_path: Optional[str] = 'vision/models/face_landmarker.task',
+                 model_path: Optional[str] = 'src/vision/models/face_landmarker.task',
                  num_faces: int = 1,
                  min_detection_confidence: float = 0.95,
                  min_tracking_confidence: float = 0.95,
