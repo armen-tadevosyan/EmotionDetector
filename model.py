@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import models
 
 class EmotionCNN(nn.Module):
     def __init__(self, num_classes=7):
@@ -31,3 +32,23 @@ class EmotionCNN(nn.Module):
         x = self.dropout(F.relu(self.fc1(x)))
         x = self.fc2(x)
         return x
+    
+class EmotionTransformer(nn.Module):
+    def __init__(self, num_classes=8):
+        super(EmotionTransformer, self).__init__()
+        
+        # Loads a pre-trained Vision Transformer (ViT-B/16)
+        # Weights are pre-trained on ImageNet for general feature recognition
+        self.vit = models.vit_b_16(weights=models.ViT_B_16_Weights.IMAGENET1K_V1)
+        
+        # ViT expects 3-channel (RGB) images, but FERPlus is 1-channel (Grayscale)
+        # We modify the first layer to accept grayscale
+        self.vit.conv_proj = nn.Conv2d(1, 768, kernel_size=(16, 16), stride=(16, 16))
+        
+        # Replace the final head with a custom one for 8 classes
+        self.vit.heads = nn.Sequential(
+            nn.Linear(768, num_classes)
+        )
+
+    def forward(self, x):
+        return self.vit(x)

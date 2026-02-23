@@ -5,8 +5,7 @@ import torch.optim as optim
 import kagglehub
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from model import EmotionCNN 
-
+from model import EmotionCNN, EmotionTransformer
 # 1. Download/Path Handling
 # Returns the path to the cached dataset on your MacBook
 data_path = kagglehub.dataset_download("subhaditya/fer2013plus")
@@ -20,15 +19,15 @@ else:
     device_type = "cpu"
 
 DEVICE = torch.device(device_type)
-BATCH_SIZE = 64
+BATCH_SIZE = 16
 LR = 0.001
 WEIGHT_DECAY = 1e-4 
-EPOCHS = 10
+EPOCHS = 5
 NUM_WORKERS = os.cpu_count() if os.cpu_count() else 0
 
 transform = transforms.Compose([
     transforms.Grayscale(num_output_channels=1),
-    transforms.Resize((48, 48)),
+    transforms.Resize((224, 224)),
     transforms.RandomHorizontalFlip(), 
     transforms.ToTensor(),
     transforms.Normalize((0.5,), (0.5,)) # Center pixels around zero
@@ -58,7 +57,7 @@ def run_training():
                              num_workers=NUM_WORKERS, pin_memory=True)
 
     # 5. Initialize Model, Optimizer, and Loss
-    model = EmotionCNN(num_classes=len(train_set.classes)).to(DEVICE)
+    model = EmotionTransformer(num_classes=len(train_set.classes)).to(DEVICE)
     optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     criterion = nn.CrossEntropyLoss()
 
