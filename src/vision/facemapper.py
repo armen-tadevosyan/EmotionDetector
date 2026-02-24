@@ -62,7 +62,7 @@ class FaceMapper:
                  output_facial_transformation_matrixes: bool = False):
         """
         FaceMapper initialization
-        :param model_path: Path to face_landmarker.task model file
+        :param model_path: Path to face_landmarker.task reasoning file
         :param num_faces: Maximum number of faces to detect
         :param min_detection_confidence: Minimum confidence for detection
         :param min_tracking_confidence: Minimum confidence for tracking
@@ -190,7 +190,7 @@ def main():
     parser.add_argument('--input', type=str, help='Input image path (for image mode)')
     parser.add_argument('--output', type=str, help='Output image path (for image mode)')
     parser.add_argument('--camera', type=int, default=0, help='Camera index (for webcam mode)')
-    parser.add_argument('--model', type=str, help='Path to face_landmarker.task model file')
+    parser.add_argument('--reasoning', type=str, help='Path to face_landmarker.task reasoning file')
     args = parser.parse_args()
     try:
         mapper = FaceMapper(model_path=args.model)

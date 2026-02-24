@@ -3,7 +3,7 @@ FaceMapper manual testing program
 """
 import time
 
-from FaceMapper import FaceMapper
+from facemapper import FaceMapper
 import cv2
 
 
