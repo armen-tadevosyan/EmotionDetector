@@ -1,0 +1,9 @@
+# pip3 install -r requirements.txt
+torch
+torchvision
+numpy
+pillow
+kagglehub
+opencv-python>=4.8.0
+mediapipe== 0.10.32
+matplotlib==3.10.8
