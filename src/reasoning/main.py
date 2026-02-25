@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import kagglehub
+from datetime import datetime
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 from model import EmotionCNN 
@@ -93,8 +94,10 @@ def run_training():
         print(f"Epoch [{epoch+1}/{EPOCHS}] - Loss: {train_loss/len(train_loader):.4f} - Val Acc: {accuracy:.2f}%")
 
     # 7. Save Model Weights
-    torch.save(model.state_dict(), "ferplus_model.pth")
-    print("Training complete! Model weights saved to ferplus_model.pth")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    save_path = f'./models/model_{timestamp}.pth'
+    torch.save(model.state_dict(), save_path)
+    print(f"Training complete! Model weights saved to {save_path}")
 
 if __name__ == "__main__":
     run_training()
