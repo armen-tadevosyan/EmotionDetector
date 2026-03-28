@@ -11,11 +11,12 @@ DIFFICULTY_TIERS = {
 ACCURACY_WINDOW = 10
 
 # Utility weights
-ALPHA = 0.5  # learning gain
-BETA = 0.3   # confusion focus
-GAMMA = 0.2  # frustration penalty
+LEARNING_WEIGHT = 0.5  # learning gain
+CONFUSION_WEIGHT = 0.3   # confusion focus
+FRUSTRATION_WEIGHT = 0.2  # frustration penalty
 
+# Threshold
 FRUSTRATION_STREAK_THRESHOLD = 3
 RESPONSE_TIME_THRESHOLD = 3.0
 
-MASTER_THRESHOLD = 0.80
+MASTER_THRESHOLD = 0.80 # if accuracy > threshold, deprioritize that emotion

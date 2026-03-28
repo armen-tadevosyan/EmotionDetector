@@ -39,7 +39,7 @@ class LearnerState:
     # Metrics
     def rolling_accuracy(self) -> float:
         if not self.history:
-            return 0.5
+            return 0.5 # base-line
 
         correct = sum(1 for _, c in self.history if c)
         return correct / len(self.history)
@@ -68,7 +68,7 @@ class LearnerState:
 
         return target
 
-    # Summary 
+    # Summary -- "snapshot" of the user's performance
     def summary(self):
         return {
             "rolling_accuracy": self.rolling_accuracy(),
