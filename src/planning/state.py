@@ -1,49 +1,77 @@
-# Meant to track everything about the user
-class State:
-    # Initialize the state of the learning system. 
-    # Represents the "state" in the MDP. It tracks user performance over time.
-    def __init(self):
-        self.history = []
-        self.confusion_matrix = {}
-        self.difficulty = "easy"
+# state.py -- tracks user performance 
 
-    # Updates the state after each user interaction.
-    def update(self, true_emotion, user_answer, response_time):
-        correct = (true_emotion == user_answer)
+from config import EMOTIONS, ACCURACY_WINDOW
+from collections import deque, defaultdict
+import numpy as np
 
-        self.history.append({
-            "true": true_emotion, # the correct label
-            "answer": user_answer, # what the user guessed
-            "correct": correct, 
-            "time": response_time # how long they took
-        })
 
-        # Updates the confusion matrix only if its incorrect. 
-        # Like if the user thought "sad" was "angry"
-        if not correct:
-            key = (true_emotion, user_answer)
-            self.confusion_matrix[key] = self.confusion_matrix.get(key, 0) + 1
+class LearnerState:
+    def __init__(self):
+        # Store (emotion, correct) tuples
+        self.history = deque(maxlen=ACCURACY_WINDOW)
 
-    # Computes rolling accuracy over the last N attempts.
-    # This is used to estimate learning progress
-    def get_accuracy(self, windows=5):
-        recent = self.history[-window:]
-        if not recent:
+        # Track per-emotion performance
+        self.emotion_stats = defaultdict(lambda: {"correct": 0, "total": 0})
+
+        # Extra signals
+        self.response_times = []
+        self.error_streak = 0
+
+    # Update State
+    def update(self, emotion, correct, response_time):
+        # Update history
+        self.history.append((emotion, correct))
+
+        # Update per-emotion stats
+        self.emotion_stats[emotion]["total"] += 1
+        if correct:
+            self.emotion_stats[emotion]["correct"] += 1
+
+        # Update response time
+        self.response_times.append(response_time)
+
+        # Update error streak
+        if correct:
+            self.error_streak = 0
+        else:
+            self.error_streak += 1
+
+    # Metrics
+    def rolling_accuracy(self) -> float:
+        if not self.history:
+            return 0.5
+
+        correct = sum(1 for _, c in self.history if c)
+        return correct / len(self.history)
+
+    def emotion_accuracy(self, emotion) -> float:
+        stats = self.emotion_stats[emotion]
+        if stats["total"] == 0:
+            return 0.5
+        return stats["correct"] / stats["total"]
+
+    def avg_response_time(self) -> float:
+        if not self.response_times:
             return 0
-        return sum(h["correct"] for h in recent) / len(recent)
-    
-    # Computes average response time over recent attempts. 
-    def get_avg_time(self, window=5):
-        recent = self.history[-window:]
-        if not recent: 
-            return 0
-        return sum(h["time"] for h in recent) / len(recent)
-    
-    # Counts how many incorrect answers in a row. this is used for detecting frustration.
-    def get_error_streak(self):
-        streak = 0
-        for h in reversed(self.history):
-            if h["correct"]:
-                break
-            streak += 1
-        return streak
+        return np.mean(self.response_times)
+
+    def most_confused_emotion(self):
+        # Lowest accuracy emotion = most confused
+        lowest_acc = 1.0
+        target = None
+
+        for emotion in EMOTIONS:
+            acc = self.emotion_accuracy(emotion)
+            if acc < lowest_acc:
+                lowest_acc = acc
+                target = emotion
+
+        return target
+
+    # Summary 
+    def summary(self):
+        return {
+            "rolling_accuracy": self.rolling_accuracy(),
+            "error_streak": self.error_streak,
+            "avg_response_time": self.avg_response_time(),
+        }
