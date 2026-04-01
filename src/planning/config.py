@@ -1,11 +1,11 @@
 # config.py -- constant & settings 
 
-EMOTIONS = ['angry', 'contempt', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
+EMOTIONS = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
 
 DIFFICULTY_TIERS = {
     1: ["happy", "neutral"],  # easiest
     2: ["sad", "surprise", "angry"],
-    3: ["fear", "disgust", "contempt"],  # hardest (...unsure on what to do with contempt sicne it seems hard)
+    3: ["fear", "disgust"],  # hardest (...unsure on what to do with contempt sicne it seems hard)
 }
 
 ACCURACY_WINDOW = 10

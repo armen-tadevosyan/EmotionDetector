@@ -1,18 +1,31 @@
 # adaptive_planner.py -- the BRAIN of this model i hope...
 
 from state import LearnerState
-from config import DIFFICULTY_TIERS
+from config import (
+    DIFFICULTY_TIERS,
+    LEARNING_WEIGHT,
+    CONFUSION_WEIGHT,
+    FRUSTRATION_STREAK_THRESHOLD,
+    RESPONSE_TIME_THRESHOLD,
+    CONFUSION_WEIGHT,
+    FRUSTRATION_WEIGHT
+)
 
+MAX_DIFFICULTY = max(DIFFICULTY_TIERS.keys())
+MIN_DIFFICULTY = min(DIFFICULTY_TIERS.keys())
+
+MIN_TRIALS_BEFORE_INCREASE = 3 # must spend at least this many trials at a level before going up
 
 class AdaptivePlanner:
-    # Initialize by creating new state tracker & Level 1
     def __init__(self):
         self.state = LearnerState()
-        self.current_difficulty = 1 # Start at level 1 (easy level)
+        self.current_difficulty = MIN_DIFFICULTY 
+        self.trials_at_difficulty = 0
 
     # update from User Interaction 
     def update(self, emotion, correct, response_time):
         self.state.update(emotion, correct, response_time)
+        self.trials_at_difficulty += 1
 
     # Utility function *Core Idea*
     # How good is the action for the user right now?
@@ -24,21 +37,29 @@ class AdaptivePlanner:
         # Learning gain
         # Accuracy low = more to learn -> higher to gain
         # Accuracy high = less to learn
-        learning_gain = (1 - accuracy)
+        learning_gain = LEARNING_WEIGHT * (1 - accuracy)
+
+        if action == "increase_difficulty":
+            learning_gain += LEARNING_WEIGHT * accuracy
 
         if action == "target_confusion":
-            learning_gain += 0.5
+            confused = self.state.most_confused_emotion()
+            if confused is not None:
+                confusion_penalty = 1 - self.state.emotion_accuracy(confused)
+                learning_gain += CONFUSION_WEIGHT * confusion_penalty
 
         # Penalty
         # More mistakes = more frustration
-        frustration = 0.1 * error_streak + 0.05 * response_time
+        streak_signal = error_streak / max(FRUSTRATION_STREAK_THRESHOLD, 1)
+        time_signal = response_time / max(RESPONSE_TIME_THRESHOLD, 1)
+        frustration = FRUSTRATION_WEIGHT * (0.05 * streak_signal + 0.5 * time_signal)
 
         # Harder problems = more stress
         if action == "increase_difficulty":
-            frustration += 0.2
+            frustration += FRUSTRATION_WEIGHT * 0.5
         # Easier problems = less stress
         elif action == "decrease_difficulty":
-            frustration -= 0.1
+            frustration -= FRUSTRATION_WEIGHT * 0.25
 
         # Pick action that max. learning but avoids frustration
         return learning_gain - frustration
@@ -52,6 +73,23 @@ class AdaptivePlanner:
             "target_confusion"
         ]
 
+        accuracy = self.state.rolling_accuracy()
+
+        # mask impossible actions at difficulty boundaries
+        if self.current_difficulty >= MAX_DIFFICULTY:
+            actions.remove("increase_difficulty")
+        if self.current_difficulty <= MIN_DIFFICULTY:
+            actions.remove("decrease_difficulty")
+
+        if self.trials_at_difficulty < MIN_TRIALS_BEFORE_INCREASE:
+            if "increase_difficulty" in actions:
+                actions.remove("increase_difficulty")
+            if "decrease_difficulty" in actions:
+                actions.remove("decrease_difficulty")
+
+        if accuracy >= 0.7 and "decrease_difficulty" in actions:
+            actions.remove("decrease_difficulty")
+        
         utilities = {a: self.compute_utility(a) for a in actions} # scoring 
         return max(utilities, key=utilities.get) # Choose highest score
 
@@ -60,18 +98,15 @@ class AdaptivePlanner:
         action = self.select_action()
 
         if action == "increase_difficulty":
-            self.current_difficulty += 1
-
+            self.current_difficulty = min(MAX_DIFFICULTY, self.current_difficulty + 1)
+            self.trials_at_difficulty = 0
         elif action == "decrease_difficulty":
-            self.current_difficulty = max(1, self.current_difficulty - 1)
+            self.current_difficulty = max(MIN_DIFFICULTY, self.current_difficulty - 1)
+            self.trials_at_difficulty = 0
 
-        elif action == "target_confusion":
-            emotion = self.state.most_confused_emotion() # what does the user struggle with the most?
-            return {
-                "difficulty": self.current_difficulty,
-                "target_emotion": emotion
-            }
+        result = {"difficulty": self.current_difficulty, "target_emotion": None}
 
-        return {
-            "difficulty": self.current_difficulty
-        }
+        if action == "target_confusion":
+            result["target_emotion"] = self.state.most_confused_emotion()
+
+        return result
