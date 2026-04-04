@@ -1,11 +1,12 @@
 import os
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import kagglehub
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
-from model import EmotionCNN, EmotionTransformer
+from model import EmotionCNN
 # 1. Download/Path Handling
 # Returns the path to the cached dataset on your MacBook
 data_path = kagglehub.dataset_download("subhaditya/fer2013plus")
@@ -20,20 +21,20 @@ else:
 
 DEVICE = torch.device(device_type)
 BATCH_SIZE = 16
-LR = 0.001
+LR = 0.000001
 WEIGHT_DECAY = 1e-4 
 EPOCHS = 5
 NUM_WORKERS = os.cpu_count() if os.cpu_count() else 0
 
 transform = transforms.Compose([
     transforms.Grayscale(num_output_channels=1),
-    transforms.Resize((224, 224)),
+    transforms.Resize((48, 48)),
     transforms.RandomHorizontalFlip(), 
     transforms.ToTensor(),
     transforms.Normalize((0.5,), (0.5,)) # Center pixels around zero
 ])
 
-def run_training():
+def run_training(num_epochs=EPOCHS, save_model=True):
     # 4. Dynamic Path Detection 
     train_dir = None
     test_dir = None
@@ -51,19 +52,29 @@ def run_training():
     train_set = datasets.ImageFolder(root=train_dir, transform=transform)
     test_set = datasets.ImageFolder(root=test_dir, transform=transform)
 
-    train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True, 
-                              num_workers=NUM_WORKERS, pin_memory=True)
-    test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=False, 
-                             num_workers=NUM_WORKERS, pin_memory=True)
+    train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, 
+                              shuffle=True, 
+                              num_workers=NUM_WORKERS, 
+                              pin_memory=True, 
+                              persistent_workers=True, 
+                              multiprocessing_context='forkserver')
+    test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, 
+                             shuffle=False, 
+                             num_workers=NUM_WORKERS, 
+                             pin_memory=True, 
+                             persistent_workers=True, 
+                             multiprocessing_context='forkserver')
 
     # 5. Initialize Model, Optimizer, and Loss
-    model = EmotionTransformer(num_classes=len(train_set.classes)).to(DEVICE)
+    model = EmotionCNN(num_classes=len(train_set.classes)).to(DEVICE)
     optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     criterion = nn.CrossEntropyLoss()
 
     # 6. Training & Validation Loop
     print(f"Starting training on {DEVICE}...")
-    for epoch in range(EPOCHS):
+    total_elapsed = 0.0
+    for epoch in range(num_epochs):
+        epoch_start = time.perf_counter()
         # Training Phase
         model.train()
         train_loss = 0.0
@@ -88,12 +99,21 @@ def run_training():
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
 
+        epoch_duration = time.perf_counter() - epoch_start
         accuracy = 100 * correct / total
-        print(f"Epoch [{epoch+1}/{EPOCHS}] - Loss: {train_loss/len(train_loader):.4f} - Val Acc: {accuracy:.2f}%")
+        total_elapsed += epoch_duration
+        avg_epoch_time = total_elapsed / (epoch + 1)
+        remaining_epochs = num_epochs - (epoch + 1)
+        eta_seconds = avg_epoch_time * remaining_epochs
+        print(
+            f"Epoch [{epoch+1}/{num_epochs}] - Loss: {train_loss/len(train_loader):.4f} "
+            f"- Val Acc: {accuracy:.2f}% - Time: {epoch_duration:.1f}s - ETA: {eta_seconds/60:.1f}m"
+        )
 
     # 7. Save Model Weights
-    torch.save(model.state_dict(), "ferplus_model.pth")
-    print("Training complete! Model weights saved to ferplus_model.pth")
+    if save_model:
+        torch.save(model.state_dict(), "ferplus_model.pth")
+        print("Training complete! Model weights saved to ferplus_model.pth")
 
 if __name__ == "__main__":
-    run_training()
+    run_training()  
