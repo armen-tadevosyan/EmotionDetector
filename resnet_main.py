@@ -10,16 +10,16 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, models, transforms
 from collections import Counter
 
-# Ensure logs are flushed immediately so epoch stats appear live.
+# make sure print statements show up right away during training
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(line_buffering=True)
 
 
-# 1. Download/Path Handling
+# download the dataset from kaggle (it caches it locally after the first time)
 data_path = kagglehub.dataset_download("subhaditya/fer2013plus")
 
 
-# 2. Configuration & Hyperparameters
+# pick the best available device - GPU if possible, otherwise CPU
 if torch.cuda.is_available():
     device_type = "cuda"
 elif torch.backends.mps.is_available():
@@ -28,16 +28,18 @@ else:
     device_type = "cpu"
 
 DEVICE = torch.device(device_type)
+
+# hyperparameters
 BATCH_SIZE = 32
 LR = 3e-4
 WEIGHT_DECAY = 1e-4
 EPOCHS = 10
 NUM_WORKERS = os.cpu_count() if os.cpu_count() else 0
 MODEL_PATH = "ferplus_resnet18.pth"
-EXCLUDED_CLASS = "contempt"
+EXCLUDED_CLASS = "contempt"  # we drop this class since it's underrepresented
 
 
-# Keep 3 channels to fully use pretrained ResNet weights.
+# convert grayscale images to 3 channels so pretrained ResNet weights still work
 transform = transforms.Compose([
     transforms.Grayscale(num_output_channels=3),
     transforms.Resize((224, 224)),
@@ -48,7 +50,9 @@ transform = transforms.Compose([
 
 
 class FilteredImageFolder(Dataset):
+    # custom dataset wrapper that loads images but skips a specific class we don't want
     def __init__(self, root, excluded_class, transform):
+        # load the full dataset first, then we'll filter out the unwanted class
         self.base = datasets.ImageFolder(root=root, transform=transform)
         self.excluded_class = excluded_class
 
@@ -56,15 +60,19 @@ class FilteredImageFolder(Dataset):
             raise ValueError(f"Excluded class '{excluded_class}' not found in dataset classes: {self.base.classes}")
 
         excluded_idx = self.base.class_to_idx[excluded_class]
+
+        # rebuild the class list and index mapping without the excluded class
         self.classes = [name for name in self.base.classes if name != excluded_class]
         self.class_to_idx = {name: idx for idx, name in enumerate(self.classes)}
 
+        # map old indices to new ones since removing a class shifts everything
         old_to_new_idx = {}
         for class_name, old_idx in self.base.class_to_idx.items():
             if class_name == excluded_class:
                 continue
             old_to_new_idx[old_idx] = self.class_to_idx[class_name]
 
+        # filter out samples belonging to the excluded class
         self.samples = []
         for path, old_idx in self.base.samples:
             if old_idx == excluded_idx:
@@ -74,9 +82,11 @@ class FilteredImageFolder(Dataset):
         self.targets = [label for _, label in self.samples]
 
     def __len__(self):
+        # required by PyTorch - returns total number of samples
         return len(self.samples)
 
     def __getitem__(self, index):
+        # required by PyTorch - loads and returns one image and its label
         path, label = self.samples[index]
         sample = self.base.loader(path)
         if self.base.transform is not None:
@@ -85,6 +95,7 @@ class FilteredImageFolder(Dataset):
 
 
 def build_loaders(train_dir, test_dir):
+    # creates the train and test datasets, then wraps them in DataLoaders for batching
     train_set = FilteredImageFolder(root=train_dir, excluded_class=EXCLUDED_CLASS, transform=transform)
     test_set = FilteredImageFolder(root=test_dir, excluded_class=EXCLUDED_CLASS, transform=transform)
 
@@ -94,7 +105,7 @@ def build_loaders(train_dir, test_dir):
         "pin_memory": True,
     }
 
-    # persistent_workers only works when worker count is > 0.
+    # persistent_workers requires at least one worker, otherwise it errors
     if NUM_WORKERS > 0:
         loader_kwargs["persistent_workers"] = True
         loader_kwargs["multiprocessing_context"] = "forkserver"
@@ -105,6 +116,7 @@ def build_loaders(train_dir, test_dir):
 
 
 def describe_dataset(train_set, test_loader):
+    # prints some useful info about the dataset - class names, counts per split, sample paths
     test_set = test_loader.dataset
     print(f"Train images: {len(train_set)}", flush=True)
     print(f"Test images: {len(test_set)}", flush=True)
@@ -129,6 +141,8 @@ def describe_dataset(train_set, test_loader):
 
 
 def build_model(num_classes, pretrained=True):
+    # loads ResNet18 with optional pretrained weights, then replaces the final layer
+    # to match our number of emotion classes instead of the original 1000 ImageNet classes
     weights = models.ResNet18_Weights.IMAGENET1K_V1 if pretrained else None
     model = models.resnet18(weights=weights)
     model.fc = nn.Linear(model.fc.in_features, num_classes)
@@ -136,6 +150,7 @@ def build_model(num_classes, pretrained=True):
 
 
 def locate_split_dirs():
+    # walks the downloaded dataset folder to find where "train" and "test" subdirectories are
     train_dir = None
     test_dir = None
     for root, dirs, _ in os.walk(data_path):
@@ -150,6 +165,7 @@ def locate_split_dirs():
 
 
 def load_data():
+    # finds the data directories, builds the loaders, and does a sanity check on class mappings
     train_dir, test_dir = locate_split_dirs()
     print(f"Dataset cache path: {data_path}", flush=True)
     print(f"Loading data from: {train_dir}", flush=True)
@@ -163,6 +179,7 @@ def load_data():
 
 
 def evaluate_saved_weights(test_loader, num_classes):
+    # loads the saved model weights from disk and runs it on the test set to get accuracy
     if not os.path.exists(MODEL_PATH):
         raise FileNotFoundError(f"Saved weights not found at: {MODEL_PATH}")
 
@@ -186,6 +203,7 @@ def evaluate_saved_weights(test_loader, num_classes):
 
 
 def run_training(num_epochs=EPOCHS, save_model=True):
+    # main training function - loads data, builds the model, trains for N epochs, saves weights
     train_set, train_loader, test_loader = load_data()
 
     model = build_model(num_classes=len(train_set.classes), pretrained=True)
@@ -197,6 +215,7 @@ def run_training(num_epochs=EPOCHS, save_model=True):
     for epoch in range(num_epochs):
         epoch_start = time.perf_counter()
 
+        # training loop
         model.train()
         train_loss = 0.0
         for images, labels in train_loader:
@@ -208,6 +227,7 @@ def run_training(num_epochs=EPOCHS, save_model=True):
             optimizer.step()
             train_loss += loss.item()
 
+        # evaluate on test set after each epoch
         model.eval()
         correct = 0
         total = 0
