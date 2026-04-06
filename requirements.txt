@@ -9,3 +9,4 @@ kagglehub
 opencv-python>=4.8.0
 mediapipe== 0.10.32
 matplotlib==3.10.8
+pygame-ce>=2.5.0
