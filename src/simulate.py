@@ -5,6 +5,7 @@
 # decides after each trial
 
 # Run it from src with: python simulate.py
+#Simulates user sessions for the updated AdaptivePlanner (Markov-style, no fixed difficulty tiers)
 
 import sys
 import os
@@ -26,16 +27,20 @@ def run_scenario(name, trials):
     for i, (emotion, correct, response_time) in enumerate(trials):
         # Feeds the trial result into the planner
         planner.update(emotion, correct, response_time)
-
+        
         # Asks the planner what to show next
         decision = planner.decide_next()
 
-        # Grab a summary snapshot for readable output
+        # Get summary for readable output
         state_summary = planner.state.summary()
+        
+        # target_emotion can be None if all emotions are learned
+        # Updated decision dictionary so planner chooses target_emotion rather than difficulty tier
+        target = decision.get('target_emotion', None)
 
         # Prints a line showing what emotion was shown and whether the user got it right,
         # rolling accuracy and error streak (frustration signal), what the planner 
-        # decided: difficulty level and target emotion (if any)
+        # decided: target emotion
         print(
             f"Trial {i+1:02d} | "
             f"Emotion={emotion:<10}"
@@ -43,42 +48,47 @@ def run_scenario(name, trials):
             f"rt={response_time:.1f}s | "
             f"roll_acc={state_summary['rolling_accuracy']:.2f} "
             f"streak={state_summary['error_streak']} | "
-            f"diff={decision['difficulty']} "
             f"target={decision['target_emotion']}"
         )
 
+## Example Scenerios below:
+
 # Struggling user scenario. Mostly wrong answers and slow response time
-# Expected behavior: difficulty stays at 1, planner targets the most missed emotion
-struggling = (
-    [("happy", False, 5.0)] * 3 +
-    [("neutral", False, 4.5)] * 3 +
-    [("sad", False, 6.0)] * 2 + 
-    [("happy", True, 3.0)] * 2
-)
-run_scenario("Struggling user who is mostly wrong and slow", struggling)
+# Expected: Planner targets the emotion user struggled the most with -- possible exploration 
+struggling = [
+    ("happy", False, 5.0),
+    ("neutral", False, 4.5),
+    ("sad", False, 6.0),
+    ("happy", True, 3.0),
+    ("sad", False, 5.0),
+]
+run_scenario("Struggling user", struggling)
 
 # A user getting better. Mostly correct answers and fast response times.
-# Expected behavior: difficulty climbs from 1 to 2 to 3 and holds at 3
-getting_better = (
-    [("happy", True, 1.0)] * 4 + 
-    [("neutral", True, 1.2)] * 3 + 
-    [("sad", True, 1.5)] * 3  
-)
-run_scenario("User who is getting better. They are mostly correct and fast", getting_better)
+# Expected: Planner sees high accuracy -- utilities will be similar since accuracy is high
+getting_better = [
+    ("happy", True, 1.0),
+    ("neutral", True, 1.2),
+    ("sad", True, 1.5),
+    ("fear", True, 1.8),
+    ("happy", True, 1.1),
+]
+run_scenario("User improving quickly", getting_better)
 
 # Good overall accuracy, but fails one emotion consistently (fear). 
-# Expected behavior: planner reaches diff=3 (where fear is), then 
-# locks target_emotion=fear as soon as the misses start.
-emotion_weakness = (
-    [("happy", True, 1.5)] * 3 +
-    [("neutral", True, 1.5)] * 3 +
-    [("fear", False, 5)] * 4 # repeatedly misses fear
-)
-run_scenario("User who has an emotion specific weakness like fear.", emotion_weakness)
+# Expected: Planner will focus on fear until the user has 'learned' it (learned_threshold is crossed)
+emotion_weakness = [
+    ("happy", True, 1.5),
+    ("neutral", True, 1.5),
+    ("fear", False, 4.0),  # repeatedly misses fear
+    ("fear", False, 4.5),
+    ("fear", False, 5.0),
+]
+run_scenario("Emotion specific weakness (fear)", emotion_weakness)
 
 # Only 2 trials. 
 # Expected behavior: No crash, neutral behavior on trial 1.
-# target_confusion kicks in on trial 2 after the first miss.
+# limited data --> rely on default accuracy (0.5) and exploration
 cold_start = [
     ("happy", True, 2.0),
     ("sad", False, 3.5),
