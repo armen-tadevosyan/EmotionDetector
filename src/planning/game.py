@@ -1,292 +1,197 @@
-# game.py -- main game loop
-# connects the planning layer, ResNet model, and reasoning explanations
-# run from src/ with: python game.py
+# This is the main game loop. This file should be the central orchestrator of the entire system
+# It connects 3 layers:
+# Planning layer - AdaptivePlanner decides what emotion/difficulty to show next based on the
+# users rolling accuracy, error streak, and response time.
+# Perception layer - EmotionCNN flassifies the face image and returns a predicted emotion +
+# confidence. We use this to show the model's prediction as feedback after each answer
+# Reasoning layer - Will eventually return a text explanation of why a face shows a given emotion
+# like "eyebrows raised and mouth open = suprised" currently replaced with placeholder strings in get_explantion()
 
-import os
-import sys
-import time
-import random
-
+# Flow per trial (an idea):
+# 1. Planner decides difficulty level and optional target emotion
+# 2. Sample a matching image from the dataset
+# 3. Run the image through EmotionCNN to get a prediction
+# 4. Display the image to the user via pygame
+# 5. User presses a number key (1-7) to select an emotion
+# 6. Score the answer, show feedback + model prediction + explanation
+# 7. Feed result back into the planner (emotion, correct, response_time)
+# 8. Press SPACE then repeat from step 1
 import pygame
-import torch
-import kagglehub
-from PIL import Image
+import random
+import time
+from pathlib import Path
 
-# add planning/ and reasoning/ to path so imports work from src/
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "planning"))
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "reasoning"))
+from planning.adaptive_planner import AdaptivePlanner
+from planning.config import EMOTIONS
 
-from adaptive_planner import AdaptivePlanner
-from config import DIFFICULTY_TIERS
-from resnet.resnet_predict import load_resnet_model, predict_image, EMOTION_LABELS
-from rules import get_explanation, get_tip
+pygame.init()
 
-# use the model's own output labels as the choices -- this way they can never go out of sync
-EMOTIONS = EMOTION_LABELS
+# Screen setup
+WIDTH, HEIGHT = 800, 600
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Emotion Guesser")
 
-WINDOW_W = 800
-WINDOW_H = 600
-IMAGE_SIZE = 250
-TRIALS_PER_SESSION = 15
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "ferplus_resnet18.pth")
+font = pygame.font.Font(None, 36)
 
+# Planner
+planner = AdaptivePlanner()
+
+# Colors
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
-RED   = (200, 0, 0)
-GREEN = (0, 180, 0)
-GRAY  = (200, 200, 200)
+GRAY = (200, 200, 200)
+GREEN = (100, 200, 100)
+
+# Root directory for labeled face images
+LABELED_FACES_DIR = Path("../labeled_faces")
 
 
-def locate_train_dir(data_path):
-    for root, dirs, _ in os.walk(data_path):
-        if "train" in dirs:
-            return os.path.join(root, "train")
-    raise FileNotFoundError("Could not find train directory")
+def get_random_image_for_emotion(emotion):
+    """
+    Returns a random image path from labeled_faces/{emotion}/
+    or None if no valid image exists.
+    """
+    emotion_dir = LABELED_FACES_DIR / emotion
+    if not emotion_dir.is_dir():
+        return None
+    image_paths = [p for p in emotion_dir.iterdir() if p.suffix.lower() == ".png"]
+    if not image_paths:
+        return None
+    return random.choice(image_paths)
 
 
-def build_image_index(train_dir):
-    index = {}
-    for emotion in EMOTIONS:
-        folder = os.path.join(train_dir, emotion)
-        if not os.path.isdir(folder):
-            continue
-        files = [os.path.join(folder, f) for f in os.listdir(folder)
-                 if f.lower().endswith((".png", ".jpg", ".jpeg"))]
-        if files:
-            index[emotion] = files
-    return index
+def load_and_scale_image(image_path, max_width=500, max_height=300):
+    """
+    Loads an image with pygame and scales it to fit inside max_width x max_height
+    while preserving aspect ratio.
+    """
+    image = pygame.image.load(str(image_path))
+    original_width, original_height = image.get_size()
+
+    scale = min(max_width / original_width, max_height / original_height)
+    new_width = int(original_width * scale)
+    new_height = int(original_height * scale)
+
+    return pygame.transform.smoothscale(image, (new_width, new_height))
 
 
-def sample_image(image_index, difficulty, target_emotion=None):
-    if target_emotion and target_emotion in image_index:
-        emotion = target_emotion
-    else:
-        tier_emotions = [e for e in DIFFICULTY_TIERS[difficulty] if e in image_index]
-        if not tier_emotions:
-            tier_emotions = list(image_index.keys())
-        emotion = random.choice(tier_emotions)
-    return random.choice(image_index[emotion]), emotion
+# Create buttons
+def create_buttons(options):
+    buttons = []
+    button_width = 150
+    button_height = 50
+    spacing = 20
+
+    total_width = len(options) * button_width + (len(options) - 1) * spacing
+    start_x = (WIDTH - total_width) // 2
+
+    for i, option in enumerate(options):
+        rect = pygame.Rect(
+            start_x + i * (button_width + spacing),
+            HEIGHT - 150,
+            button_width,
+            button_height
+        )
+        buttons.append((rect, option))
+
+    return buttons
+
+# Draw buttons
+def draw_buttons(buttons):
+    for rect, text in buttons:
+        pygame.draw.rect(screen, GRAY, rect)
+        pygame.draw.rect(screen, BLACK, rect, 2)
+        label = font.render(text, True, BLACK)
+        label_rect = label.get_rect(center=rect.center)
+        screen.blit(label, label_rect)
 
 
-def draw_text(surface, text, font, color, x, y, center=False):
-    rendered = font.render(text, True, color)
-    rect = rendered.get_rect()
-    if center:
-        rect.center = (x, y)
-    else:
-        rect.topleft = (x, y)
-    surface.blit(rendered, rect)
-    return rect.bottom
+def draw_emotion_image(emotion):
+    """
+    Draw a random image from labeled_faces/{emotion}.
+    Falls back to text if no image is available.
+    """
+    image_path = get_random_image_for_emotion(emotion)
 
+    if image_path is None:
+        text = font.render(f"No image found for: {emotion}", True, BLACK)
+        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+        screen.blit(text, text_rect)
+        return
 
-def draw_wrapped_text(surface, text, font, color, x, y, max_width):
-    words = text.split()
-    lines = []
-    current = ""
-    for word in words:
-        test = f"{current} {word}".strip()
-        if font.size(test)[0] <= max_width:
-            current = test
-        else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-    for i, line in enumerate(lines):
-        draw_text(surface, line, font, color, x, y + i * (font.get_height() + 2))
+    try:
+        image = load_and_scale_image(image_path, max_width=500, max_height=320)
+        image_rect = image.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 40))
+        screen.blit(image, image_rect)
 
+    except Exception as e:
+        text = font.render(f"Failed to load image {image_path}", True, BLACK)
+        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+        screen.blit(text, text_rect)
+        print(f"Error loading image {image_path}: {e}")
 
-def run_game():
+# Game loop
+running = True
 
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
+# Initial state
+current_emotion = random.choice(EMOTIONS)
+start_time = time.time()
 
-    print("Loading model...")
-    model = load_resnet_model(MODEL_PATH, device)
+while running:
+    screen.fill(WHITE)
 
-    print("Loading dataset...")
-    data_path = kagglehub.dataset_download("subhaditya/fer2013plus")
-    train_dir = locate_train_dir(data_path)
-    image_index = build_image_index(train_dir)
-
-    planner = AdaptivePlanner()
-
-    pygame.init()
-    screen = pygame.display.set_mode((WINDOW_W, WINDOW_H))
-    pygame.display.set_caption("Emotion Recognition Game")
-    clock = pygame.time.Clock()
-    font       = pygame.font.SysFont("Arial", 20)
-    font_large = pygame.font.SysFont("Arial", 28, bold=True)
-    font_small = pygame.font.SysFont("Arial", 16)
-
-    STATE_QUESTION = "question"
-    STATE_FEEDBACK = "feedback"
-    STATE_DONE     = "done"
-
+    # Get next target from planner
     decision = planner.decide_next()
-    img_path, true_emotion = sample_image(image_index, decision["difficulty"], decision["target_emotion"])
-    current_img = None
+    target_emotion = decision.get("target_emotion")
 
-    state       = STATE_QUESTION
-    trial_count = 0
-    trial_start = time.time()
+    if target_emotion:
+        current_emotion = target_emotion
 
-    fb_correct      = False
-    fb_user_choice  = ""
-    fb_true_emotion = ""
-    fb_model_pred   = ""
-    fb_confidence   = 0.0
-    fb_explanation  = ""
-    fb_tip          = ""
+    # Pick 4 options
+    options = random.sample(EMOTIONS, 3)
+    if current_emotion not in options:
+        options.append(current_emotion)
+    random.shuffle(options)
+    buttons = create_buttons(options)
 
-    key_map = {
-        pygame.K_1: 0, pygame.K_2: 1, pygame.K_3: 2, pygame.K_4: 3,
-        pygame.K_5: 4, pygame.K_6: 5, pygame.K_7: 6,
-    }
+    draw_emotion_image(current_emotion)
+    draw_buttons(buttons)
 
-    running = True
-    while running:
-        screen.fill(WHITE)
+    pygame.display.flip()
 
+    answered = False
+
+    while not answered:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
+                answered = True
 
-            elif event.type == pygame.KEYDOWN:
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mouse_pos = event.pos
 
-                if state == STATE_QUESTION:
-                    if event.key in key_map:
-                        chosen_idx = key_map[event.key]
-                        if chosen_idx < len(EMOTIONS):
-                            user_choice   = EMOTIONS[chosen_idx]
-                            response_time = time.time() - trial_start
-                            correct       = (user_choice == true_emotion)
+                for rect, label in buttons:
+                    if rect.collidepoint(mouse_pos):
+                        # User clicked an answer
+                        user_answer = label
+                        response_time = time.time() - start_time
 
-                            model_pred, conf, _ = predict_image(img_path, model, device)
-                            explanation = get_explanation(true_emotion)
-                            tip         = get_tip()
+                        correct = (user_answer == current_emotion)
 
-                            planner.update(true_emotion, correct, response_time)
+                        # Update planner
+                        planner.update(
+                            current_emotion,
+                            correct,
+                            response_time,
+                            user_answer
+                        )
 
-                            fb_correct      = correct
-                            fb_user_choice  = user_choice
-                            fb_true_emotion = true_emotion
-                            fb_model_pred   = model_pred
-                            fb_confidence   = conf
-                            fb_explanation  = explanation
-                            fb_tip          = tip
+                        print(f"User picked: {user_answer} | Correct: {correct}")
 
-                            trial_count += 1
-                            state = STATE_FEEDBACK
+                        # Reset for next round
+                        start_time = time.time()
+                        answered = True
 
-                elif state == STATE_FEEDBACK:
-                    if event.key == pygame.K_SPACE:
-                        if trial_count >= TRIALS_PER_SESSION:
-                            state = STATE_DONE
-                        else:
-                            decision = planner.decide_next()
-                            img_path, true_emotion = sample_image(
-                                image_index, decision["difficulty"], decision["target_emotion"]
-                            )
-                            current_img = None
-                            trial_start = time.time()
-                            state = STATE_QUESTION
+    pygame.time.delay(500)
 
-                elif state == STATE_DONE:
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
-
-        # drawing
-
-        if state == STATE_QUESTION:
-
-            # top info bar
-            summary = planner.state.summary()
-            draw_text(screen, f"Trial: {trial_count + 1}/{TRIALS_PER_SESSION}", font_small, BLACK, 10, 10)
-            draw_text(screen, f"Difficulty: {planner.current_difficulty}/3", font_small, BLACK, 10, 28)
-            draw_text(screen, f"Accuracy: {summary['rolling_accuracy']*100:.0f}%", font_small, BLACK, 10, 46)
-
-            # face image
-            if current_img is None:
-                try:
-                    pil_img = Image.open(img_path).convert("RGB").resize((IMAGE_SIZE, IMAGE_SIZE))
-                    raw = pil_img.tobytes()
-                    current_img = pygame.image.fromstring(raw, (IMAGE_SIZE, IMAGE_SIZE), "RGB")
-                except Exception:
-                    current_img = pygame.Surface((IMAGE_SIZE, IMAGE_SIZE))
-                    current_img.fill(GRAY)
-
-            img_x = (WINDOW_W - IMAGE_SIZE) // 2
-            screen.blit(current_img, (img_x, 70))
-
-            # question
-            draw_text(screen, "What emotion is this?", font, BLACK, WINDOW_W // 2, 340, center=True)
-
-            # numbered choices
-            for i, emotion in enumerate(EMOTIONS):
-                col = i % 4
-                row = i // 4
-                x = 80 + col * 170
-                y = 370 + row * 28
-                draw_text(screen, f"{i+1}. {emotion}", font_small, BLACK, x, y)
-
-            draw_text(screen, "Press 1-7 to answer", font_small, GRAY, WINDOW_W // 2, WINDOW_H - 20, center=True)
-
-        elif state == STATE_FEEDBACK:
-
-            result_text  = "Correct!" if fb_correct else f"Wrong! It was: {fb_true_emotion}"
-            result_color = GREEN if fb_correct else RED
-            draw_text(screen, result_text, font_large, result_color, WINDOW_W // 2, 30, center=True)
-
-            # show image again
-            if current_img is None:
-                try:
-                    pil_img = Image.open(img_path).convert("RGB").resize((IMAGE_SIZE, IMAGE_SIZE))
-                    raw = pil_img.tobytes()
-                    current_img = pygame.image.fromstring(raw, (IMAGE_SIZE, IMAGE_SIZE), "RGB")
-                except Exception:
-                    current_img = pygame.Surface((IMAGE_SIZE, IMAGE_SIZE))
-                    current_img.fill(GRAY)
-
-            small_img = pygame.transform.scale(current_img, (150, 150))
-            screen.blit(small_img, (20, 60))
-
-            # feedback text
-            draw_text(screen, f"You said: {fb_user_choice}", font, BLACK, 200, 65)
-            draw_text(screen, f"AI predicted: {fb_model_pred} ({fb_confidence*100:.0f}%)", font, BLACK, 200, 95)
-
-            # explanation
-            draw_text(screen, "Why:", font, BLACK, 20, 230)
-            draw_wrapped_text(screen, fb_explanation, font_small, BLACK, 20, 255, WINDOW_W - 40)
-            draw_wrapped_text(screen, fb_tip, font_small, GRAY, 20, 300, WINDOW_W - 40)
-
-            draw_text(screen, "Press SPACE to continue", font_small, GRAY, WINDOW_W // 2, WINDOW_H - 20, center=True)
-
-        elif state == STATE_DONE:
-
-            summary = planner.state.summary()
-            draw_text(screen, "Session Complete!", font_large, BLACK, WINDOW_W // 2, 40, center=True)
-            draw_text(screen, f"Trials: {trial_count}", font, BLACK, 50, 100)
-            draw_text(screen, f"Final Accuracy: {summary['rolling_accuracy']*100:.0f}%", font, BLACK, 50, 130)
-
-            draw_text(screen, "Per-emotion accuracy:", font, BLACK, 50, 175)
-            stats = summary["emotion_stats"]
-            for i, (emotion, acc) in enumerate(stats.items()):
-                if acc is not None:
-                    draw_text(screen, f"{emotion}: {acc*100:.0f}%", font_small, BLACK, 70, 205 + i * 24)
-
-            draw_text(screen, "Press ESC to exit", font_small, GRAY, WINDOW_W // 2, WINDOW_H - 20, center=True)
-
-        pygame.display.flip()
-        clock.tick(60)
-
-    pygame.quit()
-
-
-if __name__ == "__main__":
-    run_game()
+pygame.quit()

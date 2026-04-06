@@ -35,7 +35,7 @@ LR = 3e-4
 WEIGHT_DECAY = 1e-4
 EPOCHS = 10
 NUM_WORKERS = os.cpu_count() if os.cpu_count() else 0
-MODEL_PATH = "ferplus_resnet18.pth"
+MODEL_PATH = "models/ferplus_resnet18.pth"
 EXCLUDED_CLASS = "contempt"  # we drop this class since it's underrepresented
 
 

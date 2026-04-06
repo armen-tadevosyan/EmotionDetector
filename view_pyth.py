@@ -1,6 +1,7 @@
 import os
 import kagglehub
 from torchvision import datasets
+from src.planning.config import EMOTIONS
 
 
 def locate_split_dirs(base_path):
@@ -17,12 +18,20 @@ def locate_split_dirs(base_path):
     return train_dir, test_dir
 
 
+class ImageFolderIgnoreClass(datasets.ImageFolder):
+    def find_classes(self, directory):
+        classes, class_to_idx = super().find_classes(directory)
+        classes = [cls for cls in classes if EMOTIONS.__contains__(cls)]
+        class_to_idx = {cls_name: i for i, cls_name in enumerate(classes)}
+        return classes, class_to_idx
+
+
 def main():
     data_path = kagglehub.dataset_download("subhaditya/fer2013plus")
     train_dir, test_dir = locate_split_dirs(data_path)
 
-    train_set = datasets.ImageFolder(train_dir)
-    test_set = datasets.ImageFolder(test_dir)
+    train_set = ImageFolderIgnoreClass(train_dir)
+    test_set = ImageFolderIgnoreClass(test_dir)
 
     print("Dataset cache path:", data_path)
     print("Train directory:", train_dir)
