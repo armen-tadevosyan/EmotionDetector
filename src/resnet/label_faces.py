@@ -22,6 +22,7 @@ from tqdm import tqdm
 
 from resnet_predict import load_resnet_model, predict_image, EMOTION_LABELS
 
+MINIMUM_CONFIDENCE = 0.747  # 0.747 is ideal for minimizing relative standard deviation based on a grid search
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -57,12 +58,13 @@ def main() -> None:
 
     counters: dict[str, int] = {e: 0 for e in EMOTION_LABELS + ["uncertain"]}
     errors: list[str] = []
+    uncertains: list[str] = []
 
     for img_path in tqdm(image_paths, desc="Classifying", unit="img"):
         try:
             emotion, confidence, probs = predict_image(str(img_path), model, device)
-            if confidence < 0.747: # 0.747 is ideal for minimizing relative standard deviation based on a grid search
-                print(f"Uncertain about {img_path}: {emotion} {confidence} {probs}")
+            if confidence < MINIMUM_CONFIDENCE:
+                uncertains.append(f"Uncertain about {img_path}: {emotion} {confidence} {probs}")
                 emotion = "uncertain"
 
             dest = output_root / emotion / img_path.name
@@ -99,7 +101,9 @@ def main() -> None:
     print(f"Relative standard deviation of emotion counts from expected mean: {(std_dev/expected_mean):.4f}")
     if errors:
         print(f"\n[warn] {len(errors)} files failed:")
-        [print(f"{e}") for e in errors]
+        [print(e) for e in errors]
+    if uncertains:
+        [print(e) for e in uncertains]
 
 
 if __name__ == "__main__":
