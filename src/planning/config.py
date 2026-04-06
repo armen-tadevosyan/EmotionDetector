@@ -1,7 +1,7 @@
 # Constants & settings for adaptive planner
 
 # Supported emotions (should match model)
-EMOTIONS = ['angry', 'contempt', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
+EMOTIONS = ['angry', 'disgust', 'fear', 'happy', 'neutral', 'sad', 'surprise']
 
 # Rolling accuracy window (number of recent trials to consider)
 ACCURACY_WINDOW = 10

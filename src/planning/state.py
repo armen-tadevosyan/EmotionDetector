@@ -2,7 +2,7 @@
 
 from collections import deque, defaultdict
 import numpy as np
-from .config import EMOTIONS, ACCURACY_WINDOW
+from config import EMOTIONS, ACCURACY_WINDOW
 
 class LearnerState:
     def __init__(self):

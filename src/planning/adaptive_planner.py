@@ -1,7 +1,7 @@
 # Decides which emotion to show
 
-from .state import LearnerState
-from .config import EMOTIONS, LEARNING_WEIGHT, CONFUSION_WEIGHT, FRUSTRATION_WEIGHT
+from state import LearnerState
+from config import EMOTIONS, LEARNING_WEIGHT, CONFUSION_WEIGHT, FRUSTRATION_WEIGHT
 import random
 
 

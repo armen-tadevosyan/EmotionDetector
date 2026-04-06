@@ -19,6 +19,7 @@
 import pygame
 import random
 import time
+from pathlib import Path
 
 from planning.adaptive_planner import AdaptivePlanner
 from planning.config import EMOTIONS
@@ -28,7 +29,7 @@ pygame.init()
 # Screen setup
 WIDTH, HEIGHT = 800, 600
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Emotion Detector")
+pygame.display.set_caption("Emotion Guesser")
 
 font = pygame.font.Font(None, 36)
 
@@ -41,6 +42,39 @@ BLACK = (0, 0, 0)
 GRAY = (200, 200, 200)
 GREEN = (100, 200, 100)
 
+# Root directory for labeled face images
+LABELED_FACES_DIR = Path("../labeled_faces")
+
+
+def get_random_image_for_emotion(emotion):
+    """
+    Returns a random image path from labeled_faces/{emotion}/
+    or None if no valid image exists.
+    """
+    emotion_dir = LABELED_FACES_DIR / emotion
+    if not emotion_dir.is_dir():
+        return None
+    image_paths = [p for p in emotion_dir.iterdir() if p.suffix.lower() == ".png"]
+    if not image_paths:
+        return None
+    return random.choice(image_paths)
+
+
+def load_and_scale_image(image_path, max_width=500, max_height=300):
+    """
+    Loads an image with pygame and scales it to fit inside max_width x max_height
+    while preserving aspect ratio.
+    """
+    image = pygame.image.load(str(image_path))
+    original_width, original_height = image.get_size()
+
+    scale = min(max_width / original_width, max_height / original_height)
+    new_width = int(original_width * scale)
+    new_height = int(original_height * scale)
+
+    return pygame.transform.smoothscale(image, (new_width, new_height))
+
+
 # Create buttons
 def create_buttons(options):
     buttons = []
@@ -48,7 +82,8 @@ def create_buttons(options):
     button_height = 50
     spacing = 20
 
-    start_x = (WIDTH - (len(options) * (button_width + spacing))) // 2
+    total_width = len(options) * button_width + (len(options) - 1) * spacing
+    start_x = (WIDTH - total_width) // 2
 
     for i, option in enumerate(options):
         rect = pygame.Rect(
@@ -65,13 +100,35 @@ def create_buttons(options):
 def draw_buttons(buttons):
     for rect, text in buttons:
         pygame.draw.rect(screen, GRAY, rect)
+        pygame.draw.rect(screen, BLACK, rect, 2)
         label = font.render(text, True, BLACK)
-        screen.blit(label, (rect.x + 10, rect.y + 10))
+        label_rect = label.get_rect(center=rect.center)
+        screen.blit(label, label_rect)
 
-# Simulated "image" -- placeholder for now
-def draw_emotion(emotion):
-    text = font.render(f"Emotion: {emotion}", True, BLACK)
-    screen.blit(text, (WIDTH // 2 - 100, HEIGHT // 2 - 50))
+
+def draw_emotion_image(emotion):
+    """
+    Draw a random image from labeled_faces/{emotion}.
+    Falls back to text if no image is available.
+    """
+    image_path = get_random_image_for_emotion(emotion)
+
+    if image_path is None:
+        text = font.render(f"No image found for: {emotion}", True, BLACK)
+        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+        screen.blit(text, text_rect)
+        return
+
+    try:
+        image = load_and_scale_image(image_path, max_width=500, max_height=320)
+        image_rect = image.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 40))
+        screen.blit(image, image_rect)
+
+    except Exception as e:
+        text = font.render(f"Failed to load image {image_path}", True, BLACK)
+        text_rect = text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+        screen.blit(text, text_rect)
+        print(f"Error loading image {image_path}: {e}")
 
 # Game loop
 running = True
@@ -95,10 +152,9 @@ while running:
     if current_emotion not in options:
         options.append(current_emotion)
     random.shuffle(options)
-
     buttons = create_buttons(options)
 
-    draw_emotion(current_emotion)
+    draw_emotion_image(current_emotion)
     draw_buttons(buttons)
 
     pygame.display.flip()

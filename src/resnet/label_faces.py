@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import math
 import shutil
 from pathlib import Path
 
@@ -28,7 +29,7 @@ def main() -> None:
     )
     parser.add_argument("--model",  required=True, help="Path to the .pth weights file.")
     parser.add_argument("--input",  required=True, help="Directory of face images to classify.")
-    parser.add_argument("--output", default="labeled_faces", help="Root output directory (default: labeled_faces).")
+    parser.add_argument("--output", default="src/labeled_faces", help="Root output directory.")
     parser.add_argument("--device", default="cpu", choices=["cpu", "cuda", "mps"])
     args = parser.parse_args()
 
@@ -51,15 +52,19 @@ def main() -> None:
         return
 
     output_root = Path(args.output)
-    for emotion in EMOTION_LABELS:
+    for emotion in EMOTION_LABELS + ["uncertain"]:
         (output_root / emotion).mkdir(parents=True, exist_ok=True)
 
-    counters: dict[str, int] = {e: 0 for e in EMOTION_LABELS}
-    errors:   list[str]      = []
+    counters: dict[str, int] = {e: 0 for e in EMOTION_LABELS + ["uncertain"]}
+    errors: list[str] = []
 
     for img_path in tqdm(image_paths, desc="Classifying", unit="img"):
         try:
-            emotion, confidence, _ = predict_image(str(img_path), model, device)
+            emotion, confidence, probs = predict_image(str(img_path), model, device)
+            if confidence < 0.747: # 0.747 is ideal for minimizing relative standard deviation based on a grid search
+                print(f"Uncertain about {img_path}: {emotion} {confidence} {probs}")
+                emotion = "uncertain"
+
             dest = output_root / emotion / img_path.name
             # avoid overwriting files that share a name
             if dest.exists():
@@ -71,17 +76,30 @@ def main() -> None:
             counters[emotion] += 1
 
         except Exception as exc:
-            errors.append(f"{img_path.name}: {exc}")
+            errors.append(f"{img_path}: {exc}")
 
     print(f"\nDone — images saved to '{output_root}/'")
     for emotion, count in sorted(counters.items(), key=lambda x: -x[1]):
         bar = "█" * count
         print(f"{emotion:<12}  {count:>5}  {bar}")
 
+    num_emotions = len(EMOTION_LABELS)
+    total_images = len(image_paths)
+    expected_mean = (total_images - counters['uncertain']) / num_emotions
+    observed_counts = [counters[emotion] for emotion in EMOTION_LABELS]
+    variance = sum((count - expected_mean) ** 2 for count in observed_counts) / num_emotions
+    std_dev = math.sqrt(variance)
+    print("\nStatistics assuming equal true class distribution:")
+    print(f"Expected mean per emotion: {expected_mean:.2f}")
+    print("\nDeviation from expected mean:")
+    for emotion in EMOTION_LABELS:
+        diff = counters[emotion] - expected_mean
+        print(f"{emotion:<12}  count={counters[emotion]:>5}  diff={diff:>8.2f}")
+    print(f"\nStandard Deviation: {std_dev:.2f}")
+    print(f"Relative standard deviation of emotion counts from expected mean: {(std_dev/expected_mean):.4f}")
     if errors:
-        print(f"\n[warn] {len(errors)} file(s) failed:")
-        for e in errors:
-            print(f"  {e}")
+        print(f"\n[warn] {len(errors)} files failed:")
+        [print(f"{e}") for e in errors]
 
 
 if __name__ == "__main__":
