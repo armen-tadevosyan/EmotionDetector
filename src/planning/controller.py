@@ -1,4 +1,4 @@
-from adaptive_planner import AdaptivePlanner
+from .adaptive_planner import AdaptivePlanner
 
 planner = AdaptivePlanner()
 
