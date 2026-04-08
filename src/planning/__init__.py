@@ -1,0 +1,1 @@
+# empty init.py file so there is a Python package in order to run game.py
