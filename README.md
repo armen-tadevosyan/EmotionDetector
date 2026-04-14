@@ -3,6 +3,23 @@
 An interactive game that teaches facial emotion recognition using **computer vision** and **adaptive AI planning**.
 
 This project combines a deep learning perception model with an adaptive curriculum layer to create a personalized learning experience based on user performance.
+<!-- How to Run -->
+## How to Run
+
+Install dependencies:
+```sh
+pip install pygame
+```
+
+Run the game:
+```sh
+python game.py
+```
+
+Or run from root directory:
+```sh
+python -m src.planning.game
+```
 
 <!-- Project Overview -->
 ## Project Overview
@@ -68,21 +85,3 @@ This system aims to:
 - Create a more personalized experience  
 
 The goal is not to diagnose individuals, but to serve as a learning tool for improving emotional and social understanding.
-
-<!-- How to Run -->
-## How to Run
-
-Install dependencies:
-```sh
-pip install pygame
-```
-
-Run the game:
-```sh
-python game.py
-```
-
-Or run from root directory:
-```sh
-python -m src.planning.game
-```
